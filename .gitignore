@@ -1,0 +1,11 @@
+# Runtime data (persisted locally, not committed)
+data/
+
+# macOS
+.DS_Store
+
+# Claude Code project files
+.claude/
+
+# Node
+node_modules/
