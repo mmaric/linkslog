@@ -173,7 +173,7 @@ const COURSES = [
   {
     id: 'dragonsfire',
     name: "Dragon's Fire Golf Club",
-    location: 'Richmond Hill, ON',
+    location: 'Hamilton, ON',
     par: 72,
     holes: [
       {n:1,  par:4, si:17},
