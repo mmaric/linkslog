@@ -10,6 +10,8 @@ A personal golf score and handicap tracker that runs locally in your browser. No
 - **Hole-by-hole scorecards** — track score, putts, fairways hit (FIR), and greens in regulation (GIR auto-calculated)
 - **Round history** — month-grouped view with score, differential, and stat chips per round
 - **Course management** — comes with a built-in course list; add your own with custom rating, slope, and par
+- **Course stats** — tap any course to see your avg score, best score, avg differential, putts, FIR%, GIR%, scoring distribution, and a score trend chart across all rounds played there
+- **Course search** — search by name or location; recently played courses pinned at the top for quick access
 - **Stats & trends** — handicap trend chart, avg score, best round, FIR%, GIR%, putts per round
 - **Dark / Light / System theme** — picks up your OS preference or lets you override it
 - **Export & Import** — back up your rounds as JSON and restore them on any machine
@@ -63,10 +65,10 @@ To add courses to the built-in database, edit `courses.js`.
 
 ## Roadmap
 
-- [ ] Course search / auto-fill from an open course database
 - [ ] PWA support (install to home screen, offline play)
 - [ ] 9-hole round support
-- [ ] Stats breakdown by course
+- [ ] Course search / auto-fill from an open course database
+- [ ] Community-contributed course database
 
 ## License
 

@@ -1181,23 +1181,88 @@ function saveRoundEdit() {
 //  COURSES
 // ════════════════════════════════════════════════════════════
 
+let _courseSearch = '';
+
 function renderCourses() {
   const el = document.getElementById('view-courses');
   const all = allCourses();
 
+  // Recently played: unique courses from rounds, most recent first, max 4
+  const seenIds = new Set();
+  const recentCourses = [];
+  for (const r of [...state.rounds].sort((a, b) => b.date.localeCompare(a.date))) {
+    if (!seenIds.has(r.courseId)) {
+      const c = getCourse(r.courseId);
+      if (c) { seenIds.add(r.courseId); recentCourses.push(c); }
+    }
+    if (recentCourses.length >= 4) break;
+  }
+
+  // Filter by search query
+  const q = _courseSearch.toLowerCase().trim();
+  const filtered = q
+    ? all.filter(c => c.name.toLowerCase().includes(q) || c.location.toLowerCase().includes(q))
+    : all;
+
+  const recentHtml = (!q && recentCourses.length > 0) ? `
+    <div class="courses-section-label">Recently played</div>
+    <div class="recent-courses-row">
+      ${recentCourses.map(c => recentCourseChip(c)).join('')}
+    </div>
+  ` : '';
+
+  const allLabel = q ? `Results (${filtered.length})` : 'All courses';
+  const emptyHtml = `<div class="courses-empty">No courses match "${_courseSearch}".</div>`;
+
   el.innerHTML = `
     <div class="view-title">Courses</div>
+
+    <div class="course-search-wrap">
+      <svg class="course-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input class="input course-search-input" id="course-search" type="search"
+             placeholder="Search by name or location…"
+             value="${_courseSearch.replace(/"/g, '&quot;')}"
+             oninput="onCourseSearch(this.value)">
+      ${q ? `<button class="course-search-clear" onclick="onCourseSearch('')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>` : ''}
+    </div>
+
+    ${recentHtml}
+
+    <div class="courses-section-label">${allLabel}</div>
     <div class="courses-grid">
-      ${all.map(c => courseCard(c)).join('')}
-      <div class="card" style="display:flex;align-items:center;justify-content:center;min-height:160px;cursor:pointer;border-style:dashed" onclick="openCourseEditor(null)">
-        <div style="text-align:center;color:var(--text-muted)">
-          <div style="font-size:32px;margin-bottom:8px">+</div>
+      ${filtered.length ? filtered.map(c => courseCard(c)).join('') : emptyHtml}
+      ${!q ? `
+        <div class="card course-add-card" onclick="openCourseEditor(null)">
+          <div style="font-size:28px;margin-bottom:8px">+</div>
           <div style="font-size:13px;font-weight:600">Add Custom Course</div>
-        </div>
-      </div>
+        </div>` : ''}
     </div>
   `;
 
+  // Restore focus + cursor position after re-render
+  if (q) {
+    const input = document.getElementById('course-search');
+    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  }
+}
+
+function onCourseSearch(val) {
+  _courseSearch = val;
+  renderCourses();
+}
+
+function recentCourseChip(c) {
+  const roundCount = state.rounds.filter(r => r.courseId === c.id).length;
+  const city = c.location.split(',')[0];
+  return `
+    <div class="recent-course-chip" onclick="openCourseDetail('${c.id}')">
+      <div class="rcc-name">${c.name}</div>
+      <div class="rcc-meta">${city} · Par ${c.par}</div>
+      <div class="rcc-rounds">${roundCount} round${roundCount !== 1 ? 's' : ''}</div>
+    </div>
+  `;
 }
 
 function courseCard(c) {
@@ -1267,9 +1332,121 @@ function renderCourseDetail(course) {
     </tr>`;
   }).join('');
 
+  // ── Course stats ────────────────────────────────────────────
+  const cRounds = state.rounds
+    .filter(r => r.courseId === course.id)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  let statsHtml = '';
+  if (cRounds.length === 0) {
+    statsHtml = `
+      <div class="cd-stats-empty">You haven't recorded a round here yet.</div>`;
+  } else {
+    const scores      = cRounds.map(r => r.totalScore);
+    const best        = Math.min(...scores);
+    const avg         = (scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(1);
+    const avgDiff     = (cRounds.reduce((s, r) => s + r.scoreDifferential, 0) / cRounds.length).toFixed(1);
+
+    // Putts — only rounds that have hole-level putt data
+    const puttRounds  = cRounds.filter(r => r.holes && r.holes.some(h => h.putts));
+    const avgPutts    = puttRounds.length
+      ? (puttRounds.reduce((s, r) => s + r.holes.reduce((p, h) => p + (h.putts || 0), 0), 0) / puttRounds.length).toFixed(1)
+      : null;
+
+    // FIR — aggregate across all hole records
+    let firHit = 0, firTotal = 0, girHit = 0, girTotal = 0;
+    for (const r of cRounds) {
+      if (!r.holes) continue;
+      for (const h of r.holes) {
+        if (h.fir !== null && h.fir !== undefined) { firTotal++; if (h.fir) firHit++; }
+        if (h.score && h.putts !== null && h.putts !== undefined) {
+          girTotal++;
+          if ((h.score - h.putts) <= (h.par - 2)) girHit++;
+        }
+      }
+    }
+    const firPct = firTotal > 0 ? Math.round(firHit / firTotal * 100) : null;
+    const girPct = girTotal > 0 ? Math.round(girHit / girTotal * 100) : null;
+
+    // Scoring distribution across all holes
+    let eagles = 0, birdies = 0, pars = 0, bogeys = 0, doubles = 0;
+    for (const r of cRounds) {
+      if (!r.holes) continue;
+      for (const h of r.holes) {
+        if (!h.score) continue;
+        const d = h.score - h.par;
+        if (d <= -2) eagles++;
+        else if (d === -1) birdies++;
+        else if (d === 0) pars++;
+        else if (d === 1) bogeys++;
+        else doubles++;
+      }
+    }
+    const totalHoles = eagles + birdies + pars + bogeys + doubles || 1;
+    const distBar = (count, cls, label) => {
+      const pct = Math.round(count / totalHoles * 100);
+      return pct > 0 ? `<div class="cd-dist-seg ${cls}" style="flex:${count}" title="${label}: ${count} (${pct}%)"></div>` : '';
+    };
+
+    // Recent rounds list
+    const recentList = [...cRounds].reverse().slice(0, 5).map(r => `
+      <div class="cd-round-row" onclick="openRoundModal('${r.id}')">
+        <div class="cd-round-left">
+          <div class="cd-round-date">${fmtDate(r.date)}</div>
+          <div class="cd-round-tee text-muted">${r.teeName} tees · Diff ${r.scoreDifferential > 0 ? '+' : ''}${r.scoreDifferential}</div>
+        </div>
+        <div class="cd-round-score ${r.vsPar < 0 ? 'text-green' : r.vsPar > 0 ? 'text-red' : ''}">${r.totalScore}</div>
+      </div>`).join('');
+
+    // Score trend chart (3+ rounds)
+    const chartHtml = cRounds.length >= 3
+      ? `<div class="cd-chart-wrap"><canvas id="cd-score-chart" height="110"></canvas></div>`
+      : '';
+
+    statsHtml = `
+      <div class="cd-stats-grid">
+        <div class="cd-stat"><div class="cd-stat-val">${cRounds.length}</div><div class="cd-stat-lbl">Rounds</div></div>
+        <div class="cd-stat"><div class="cd-stat-val">${avg}</div><div class="cd-stat-lbl">Avg score</div></div>
+        <div class="cd-stat"><div class="cd-stat-val">${best}</div><div class="cd-stat-lbl">Best score</div></div>
+        <div class="cd-stat"><div class="cd-stat-val">${avgDiff > 0 ? '+' : ''}${avgDiff}</div><div class="cd-stat-lbl">Avg diff</div></div>
+      </div>
+
+      <div class="cd-kpi-row">
+        ${avgPutts !== null ? `<div class="cd-kpi"><span class="cd-kpi-val">${avgPutts}</span><span class="cd-kpi-lbl">Avg putts</span></div>` : ''}
+        ${firPct !== null   ? `<div class="cd-kpi"><span class="cd-kpi-val">${firPct}%</span><span class="cd-kpi-lbl">FIR</span></div>` : ''}
+        ${girPct !== null   ? `<div class="cd-kpi"><span class="cd-kpi-val">${girPct}%</span><span class="cd-kpi-lbl">GIR</span></div>` : ''}
+      </div>
+
+      <div class="cd-dist-label">Scoring distribution</div>
+      <div class="cd-dist-bar">
+        ${distBar(eagles,  'eagle',  'Eagles/better')}
+        ${distBar(birdies, 'birdie', 'Birdies')}
+        ${distBar(pars,    'par',    'Pars')}
+        ${distBar(bogeys,  'bogey',  'Bogeys')}
+        ${distBar(doubles, 'double', 'Doubles+')}
+      </div>
+      <div class="cd-dist-legend">
+        ${eagles  > 0 ? `<span class="cd-leg eagle">Eagle−</span>` : ''}
+        ${birdies > 0 ? `<span class="cd-leg birdie">Birdie</span>` : ''}
+        ${pars    > 0 ? `<span class="cd-leg par">Par</span>` : ''}
+        ${bogeys  > 0 ? `<span class="cd-leg bogey">Bogey</span>` : ''}
+        ${doubles > 0 ? `<span class="cd-leg double">Double+</span>` : ''}
+      </div>
+
+      ${chartHtml}
+
+      <div class="cd-rounds-title">Recent rounds</div>
+      <div class="cd-rounds-list">${recentList}</div>`;
+  }
+
   document.getElementById('modal-body').innerHTML = `
     <div class="modal-title">${course.name}</div>
     <div class="text-dim text-sm mb-16">📍 ${course.location} · Par ${course.par}</div>
+
+    <div class="cd-section-label">Your stats here</div>
+    ${statsHtml}
+
+    <div class="cd-section-label" style="margin-top:24px">Scorecard</div>
     <div class="modal-scorecard">
       <table class="sc-traditional">
         <thead>${holeHeaders}</thead>
@@ -1282,6 +1459,13 @@ function renderCourseDetail(course) {
       <button class="btn btn-primary" onclick="openCourseEditor('${course.id}')">Edit Course</button>
     </div>
   `;
+
+  // Draw trend chart after DOM is set
+  if (cRounds.length >= 3) {
+    const labels = cRounds.map(r => fmtDate(r.date).slice(0, 6));
+    const data   = cRounds.map(r => r.totalScore);
+    mkLineChart('cd-score-chart', labels, data, 'rgb(74,222,128)');
+  }
 }
 
 function resetCourseOverride(id) {
